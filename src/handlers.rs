@@ -1,5 +1,5 @@
 use crate::models::{ErrorResponse, ShortenRequest, ShortenResponse};
-use crate::redis_client::{fetch_url, get_redis_connection, save_url};
+use crate::redis_client::{ fetch_url, get_redis_connection, save_url};
 use axum::response::Html;
 use axum::{
     extract::{Json, Path},
@@ -10,7 +10,7 @@ use nanoid::nanoid;
 use url::Url;
 
 pub async fn shorten_url(Json(payload): Json<ShortenRequest>) -> impl IntoResponse {
-    // Validate the URL
+    // Validating the URL
     if Url::parse(&payload.url).is_err() {
         return (
             StatusCode::BAD_REQUEST,
@@ -32,6 +32,18 @@ pub async fn shorten_url(Json(payload): Json<ShortenRequest>) -> impl IntoRespon
         }
     };
 
+
+    //TODO : Needs to be implemented duplicate checking
+    // if duplicate_checker(&mut connection, &payload.url).await {
+    //     return (
+    //         StatusCode::CONFLICT,
+    //         Json(ErrorResponse {
+    //             error: "URL already exists".into(),
+    //         }),
+    //     )
+    //         .into_response();
+    // }
+
     // Generate a unique short ID
     let short_id = nanoid!(8);
 
@@ -40,7 +52,7 @@ pub async fn shorten_url(Json(payload): Json<ShortenRequest>) -> impl IntoRespon
         &mut connection,
         &short_id,
         &payload.url,
-        payload.validity as usize,
+        payload.validity as u64,
     )
     .await
     {
@@ -52,7 +64,11 @@ pub async fn shorten_url(Json(payload): Json<ShortenRequest>) -> impl IntoRespon
     }
     //We Should provide deployed url here
     let short_url = format!("http://localhost:3001/redirect/{}", short_id);
-    Json(ShortenResponse { short_url }).into_response()
+    Json(ShortenResponse {
+        short_url,
+        validity: payload.validity,
+    })
+    .into_response()
 }
 
 pub async fn redirect(Path(key): Path<String>) -> impl IntoResponse {
@@ -69,11 +85,7 @@ pub async fn redirect(Path(key): Path<String>) -> impl IntoResponse {
 
     match fetch_url(&mut connection, &key).await {
         Ok(url) => Redirect::permanent(&url).into_response(),
-        Err(err) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse { error: err }),
-        )
-            .into_response(),
+        Err(err) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: err })).into_response(),
     }
 }
 
