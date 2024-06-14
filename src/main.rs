@@ -76,31 +76,66 @@
 //     }
 // }
 
-
 //Refactored the above code and split the whole into modules
 
 use axum::{
     routing::{get, post},
-    Router,
+    Extension, Router,
+};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 mod handlers;
 mod models;
 mod redis_client;
 
+#[derive(Debug, Clone)]
+pub struct KeyValue {
+    value: String,
+    duration: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct Database {
+    store: Arc<Mutex<BTreeMap<String, KeyValue>>>,
+}
+
+impl Database {
+    pub fn new() -> Self {
+        Database {
+            store: Arc::new(Mutex::new(BTreeMap::new())),
+        }
+    }
+
+    pub fn insert(&mut self, key: String, value: String, duration: Duration) {
+        let kv = KeyValue { value, duration };
+        self.store.lock().unwrap().insert(key, kv);
+    }
+
+    pub fn get(&self, key: &str) -> Option<&KeyValue> {
+        self.store.lock().unwrap().get(key)
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    let app = Router::new()
-        .route("/",get(handlers::hello_from_server))
-        .route("/redirect/:key", get(handlers::redirect))
-        .route("/shorten", post(handlers::shorten_url));
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
 
+    let db = Arc::new(Mutex::new(Database::new()));
+
+    let app = Router::new()
+        .route("/", get(handlers::hello_from_server))
+        .route("/redirect/:key", get(handlers::redirect))
+        .route("/shorten", post(handlers::shorten_url))
+        .layer(Extension(db));
 
     println!("Server will be started on : http://localhost:3001");
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
     axum::serve(listener, app).await.unwrap();
-
- 
-
 }
